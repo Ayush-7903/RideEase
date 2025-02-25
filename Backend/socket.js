@@ -7,26 +7,37 @@ let io;
 function initializeSocket(server) {
     io = socketIo(server, {
         cors: {
-            origin: '*',
-            methods: [ 'GET', 'POST' ]
-        }
+            origin: process.env.CORS_ORIGIN || "http://localhost:3000", // Frontend URL
+            methods: ["GET", "POST"],
+            credentials: true,
+        },
     });
 
     io.on('connection', (socket) => {
         console.log(`Client connected: ${socket.id}`);
 
-
+        // Join event for updating socketId in DB
         socket.on('join', async (data) => {
-            const { userId, userType } = data;
+            try {
+                const { userId, userType } = data;
+                if (!userId || !userType) {
+                    return socket.emit('error', { message: 'Invalid user data' });
+                }
 
-            if (userType === 'user') {
-                await userModel.findByIdAndUpdate(userId, { socketId: socket.id });
-            } else if (userType === 'captain') {
-                await captainModel.findByIdAndUpdate(userId, { socketId: socket.id });
+                if (userType === 'user') {
+                    await userModel.findByIdAndUpdate(userId, { socketId: socket.id });
+                } else if (userType === 'captain') {
+                    await captainModel.findByIdAndUpdate(userId, { socketId: socket.id });
+                }
+
+                console.log(`User ${userId} (${userType}) joined with socket ${socket.id}`);
+            } catch (error) {
+                console.error('Error updating socket ID:', error);
+                socket.emit('error', { message: 'Failed to update socket ID' });
             }
         });
 
-
+        // Event for updating location of captains
         socket.on('update-location-captain', async (data) => {
             const { userId, location } = data;
 
@@ -37,26 +48,32 @@ function initializeSocket(server) {
             await captainModel.findByIdAndUpdate(userId, {
                 location: {
                     ltd: location.ltd,
-                    lng: location.lng
-                }
+                    lng: location.lng,
+                },
             });
         });
 
+        // Handle disconnection
         socket.on('disconnect', () => {
             console.log(`Client disconnected: ${socket.id}`);
         });
     });
 }
 
+// Function to send messages to specific socketId
 const sendMessageToSocketId = (socketId, messageObject) => {
+    if (!socketId) {
+        console.error('Invalid socket ID:', socketId);
+        return;
+    }
 
-console.log(messageObject);
+    console.log('Sending message:', messageObject);
 
     if (io) {
         io.to(socketId).emit(messageObject.event, messageObject.data);
     } else {
         console.log('Socket.io not initialized.');
     }
-}
+};
 
 module.exports = { initializeSocket, sendMessageToSocketId };
